@@ -31,7 +31,7 @@ Arguments:
 2. **-o** : output file where tip numbers will be written (optional)
 3. **-t** : numeric value specifying number of threads to use for decomposition (optional, default = 1)
 4. **-p** : numeric value specifying number of partitions to create in coarse-grained decomposition (optional, default and recommended = 150)
-5. **-s** : enum. Use **-s 0** to peel vertex set $U$ (LHS in input file) and **-s 1** to peel set $V$ (RHS in input file) (optional, default = 0)
+5. **-s** : enum. Use "**-s 0**" to peel vertex set **U** (LHS in input file) and "-s 1" to peel set "V" (RHS in input file) (optional, default = 0)
 
 
 ## Input
