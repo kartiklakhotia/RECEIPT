@@ -15,6 +15,11 @@ than the baselines.
 make
 ```
 
+It generates two executables:
+
+1. **decomposePar** - parallel peeling (using RECEIPT)
+2. **decomposeSer** - sequential peeling
+
 
 ## Prerequisites
 [Boost Sort Parallel Library](https://github.com/fjtapia/sort_parallel)
@@ -22,7 +27,7 @@ make
 
 ## Run
 ```
-./decompose -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> -s <peelSide>
+./decomposePar -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> -s <peelSide>
 
 ```
 Arguments:
@@ -32,6 +37,9 @@ Arguments:
 3. **-t** : numeric value specifying number of threads to use for decomposition (optional, default = 1)
 4. **-p** : numeric value specifying number of partitions to create in coarse-grained decomposition (optional, default and recommended = 150)
 5. **-s** : enum. Use "**-s 0**" to peel vertex set **U** (LHS in input file) and "-s 1" to peel set "V" (RHS in input file) (optional, default = 0)
+
+
+Options **-t** and **-p** are not required for sequential peeling executable.
 
 
 ## Input
