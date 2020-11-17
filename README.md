@@ -8,8 +8,6 @@ to create independent subgraphs that can be peeled concurrently. It can peel
 the largest open bipartite datasets in few minutes, orders of magnitude faster
 than the baselines.
 
-
-
 ## Compile
 ```
 make
@@ -69,3 +67,7 @@ where `u` is the vertex id and `t` is it's tip number
 ## Baselines
 [Sequential Tip Decomposition algorithm](http://sariyuce.com/bnd.tar)
 [ParButterfly with Julienne's bucketing](https://github.com/jeshi96/parbutterfly)
+
+## Paper
+Please refer to the paper [RECEIPT: REfine CoarsE-grained IndePendent Tasks for Parallel Tip decomposition of Bipartite Graphs](https://arxiv.org/abs/2010.08695)
+for details, and cite if you use the code.
