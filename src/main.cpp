@@ -97,6 +97,7 @@ int main(int argc, char** argv)
     double countDone = omp_get_wtime();
     intB totCnt = parallel_reduce<intB, intB>(butterflyCnt);
     printf("total butterflies = %lld\n", totCnt/4);
+    return 0;
     std::vector<intB> tipVal;
     tipVal.swap(butterflyCnt);
     
@@ -121,7 +122,7 @@ int main(int argc, char** argv)
     double fineEnd = omp_get_wtime();
     printf("TIME to fine decompose = %lf\n", (fineEnd-fineBegin)*1000);
 
-    if (opExists=true)
+    if (opExists==true)
     {
         reorderArr(tipVal, labelsToVertex);
         intB maxTipVal = 0;

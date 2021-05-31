@@ -397,13 +397,11 @@ Arguments:
     2. tipVal -> support value of vertices
     3. targetPeelComplexity -> desired amount of work required to peel the partition
     4. lowerBound -> lowest tip value
-    5. upperBound -> highest possible tip value
-    6. peelWork -> work required to peel the vertices
+    5. peelWork -> work required to peel the vertices
 ******************************************************************************/
 std::tuple<intB, intV, intV> find_range (std::vector<intV> &vertices, std::vector<intB>&tipVal, intB targetPeelComplexity, intB lowerBound, intB upperBound, std::vector<intE> &peelWork)
 {
     parallel_sort_kv_increasing<intV, intB>(vertices, tipVal);  //sort vertices on their current support
-    //printf("sorted, ");
 
     //compute workload for each bucket - map, prefix sum, scatter
     //find bucket id for each vertex using map and prefix sum
@@ -412,7 +410,8 @@ std::tuple<intB, intV, intV> find_range (std::vector<intV> &vertices, std::vecto
     suppIsUniq[suppIsUniq.size()-1] = 1;
     #pragma omp parallel for 
     for (intV i=0; i<vertices.size()-1; i++)
-        suppIsUniq[i] = (std::min(tipVal[vertices[i]], upperBound)==std::min(tipVal[vertices[i+1]], upperBound)) ? 0 : 1;
+        suppIsUniq[i] = (tipVal[vertices[i]]==tipVal[vertices[i+1]]) ? 0 : 1;
+
     std::vector<intV> wrOffset;
     parallel_prefix_sum(wrOffset, suppIsUniq);
     intV numUniqSuppVals = wrOffset.back(); //last element in the offset vector
@@ -429,7 +428,7 @@ std::tuple<intB, intV, intV> find_range (std::vector<intV> &vertices, std::vecto
         {
             intV v = vertices[i];
             intB work = peelWork[v];
-            suppVal[wrOffset[i]] = std::min(tipVal[v], upperBound);
+            suppVal[wrOffset[i]] = tipVal[v];
             __sync_fetch_and_add(&workPerSuppVal[wrOffset[i]], work);
         }
     }
@@ -446,7 +445,7 @@ std::tuple<intB, intV, intV> find_range (std::vector<intV> &vertices, std::vecto
     //find the first bucket with work just lower than the target value
     intV tgtBktId = std::lower_bound(workPerSuppVal.begin(), workPerSuppVal.end(), targetPeelComplexity) - workPerSuppVal.begin();
 
-    intB hi = std::max(std::min(suppVal[tgtBktId], upperBound), suppVal[0]+1); //hi should be greater than the support of the first bucket to ensure non-zero vertex peeling
+    intB hi = std::max(suppVal[tgtBktId], suppVal[0]+1); //hi should be greater than the support of the first bucket to ensure non-zero vertex peeling
 
     return std::make_tuple(hi, tgtBktId, numUniqSuppVals);
 }
@@ -532,7 +531,7 @@ int create_balanced_partitions(Graph &G, std::vector<intB> &tipVal, int peelSide
         intB targetPeelComplexity = (intB)((scaleFactor*(double)remPeelComplexity)/(numParts-numPartsCreated)); //figure out target complexity to cover 
         intB desiredPeelComplexity = remPeelComplexity/(numParts-numPartsCreated);
         intB hi; intV tgtBktId, numUniqSuppVals;
-        std::tie(hi, tgtBktId, numUniqSuppVals) = find_range(vertices, tipVal, targetPeelComplexity, lo, (intB)(((intB)G.numV)*((intB)G.numV>>1)), peelWork);
+        std::tie(hi, tgtBktId, numUniqSuppVals) = find_range(vertices, tipVal, targetPeelComplexity, lo, peelWork);
 
         //peel the range
         verticesPerPart[numPartsCreated] = peel_range(G, vertices, lo, hi, isActive, tipVal, nonNativeSupport, totalCountComplexity, peelWork, wedgeCnt, isUpdated, peelCnts);
