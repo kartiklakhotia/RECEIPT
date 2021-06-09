@@ -1,22 +1,26 @@
-# Refine CoarsE-grained IndePendent Tasks
-Parallel Tip Decomposition (butterfly-based vertex peeling) of Bipartite Graphs
+# Parallel Bipartite Network Peeling (PBNG) Framework
+Parallel Tip and Wing Decomposition to mine hierarchical dense structures in bipartite graphs
 
 ## Introduction
-This is an implementation of the RECEIPT algorithm for parallel tip decomposition
-on shared-memory multi core servers. RECEIPT partitions the tip number ranges
-to create independent subgraphs that can be peeled concurrently. It can peel 
-the largest open bipartite datasets in few minutes, orders of magnitude faster
-than the baselines.
+PBNG implements a two-phased peeling for scalable parallel tip and wing decomposition
+on shared-memory multi core servers. It partitions the vertices/edges into smaller subsets
+and creates independent tasks to process the partitions concurrently. 
+It can decompose the largest open bipartite datasets in few minutes, orders of magnitude 
+faster than the baselines.
 
 ## Compile
 ```
 make
 ```
 
-It generates two executables:
+It generates the following executables:
 
-1. **decomposePar** - parallel peeling (using RECEIPT)
-2. **decomposeSer** - sequential peeling
+1. **decomposeParWing** - parallel edge peeling (for wing decomposition)
+2. **decomposeParTip** - parallel vertex peeling (for tip decomposition)
+
+Baselines:
+1. **decomposeSeqTip** - sequential vertex peeling (for tip decomposition)
+2. **decomposeSeqWing** - sequential edge peeling (for wing decomposition)
 
 
 ## Prerequisites
@@ -24,20 +28,29 @@ It generates two executables:
 
 
 ## Run
+
+
+### Wing Decomposition
 ```
-./decomposePar -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> -s <peelSide>
+./decomposeParWing -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> 
 
 ```
-Arguments:
 
-1. **-i** : text file containing input graph in edge list format
-2. **-o** : output file where tip numbers will be written (optional)
+### Tip Decomposition
+```
+./decomposeParTip -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> -s <peelSide>
+```
+
+### Arguments
+
+1. **-i** : text file containing input graph in COO format (edge list)
+2. **-o** : output file where tip/wing numbers will be written (optional)
 3. **-t** : numeric value specifying number of threads to use for decomposition (optional, default = 1)
-4. **-p** : numeric value specifying number of partitions to create in coarse-grained decomposition (optional, default and recommended = 150)
+4. **-p** : numeric value specifying number of partitions to create (optional, recommended for tip decomposition = 150, for wing decomposition = 400)
 5. **-s** : enum. Use "**-s 0**" to peel vertex set **U** (LHS in input file) and "-s 1" to peel set "V" (RHS in input file) (optional, default = 0)
 
 
-Options **-t** and **-p** are not required for sequential peeling executable.
+Options **-t** and **-p** are not required for sequential decomposition baselines.
 
 
 ## Input
@@ -49,13 +62,24 @@ This indicates that there is an edge between vertices `u` and `v`.<br /><br />
 
 
 The vertices in left column constitute the **U** set and those in right column constitute set **V**.
-Both **U** and **V** should be 0 or 1-indexed. <br />
 
 An example input file is given in the *datasets* directory.<br />
-RECEIPT has been tested extensively on large bipartite graphs from [KOBLENZ collection](http://konect.cc/).
+PBNG has been tested extensively on large bipartite graphs from [KOBLENZ collection](http://konect.cc/)
+and [Network Data Repository](http://networkrepository.com/).
 
 
 ## Output
+
+### Wing Decomposition
+The output is written in the specified file in a text format.<br />
+Every line in the output file is a tuple of three integers as shown below: 
+```
+u v t
+```
+where `u` and `v` are the vertices of an edge and `t` is it's wing number
+
+
+### Tip Decomposition
 The output is written in the specified file in a text format.<br />
 Every line in the output file is a tuple of two integers as shown below: 
 ```
@@ -65,9 +89,8 @@ where `u` is the vertex id and `t` is it's tip number
 
 
 ## Baselines
-[Sequential Tip Decomposition algorithm](http://sariyuce.com/bnd.tar)
-[ParButterfly with Julienne's bucketing](https://github.com/jeshi96/parbutterfly)
+[Sequential Tip/Wing Decomposition algorithm](http://sariyuce.com/bnd.tar)
 
 ## Paper
-Please refer to the paper [RECEIPT: REfine CoarsE-grained IndePendent Tasks for Parallel Tip decomposition of Bipartite Graphs](https://arxiv.org/abs/2010.08695)
+Please refer to the paper [RECEIPT: REfine CoarsE-grained IndePendent Tasks for Parallel Tip decomposition of Bipartite Graphs](https://dl.acm.org/doi/abs/10.5555/3430915.3442438)
 for details, and cite if you use the code.

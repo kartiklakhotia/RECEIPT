@@ -1,6 +1,7 @@
 #define DEBUG 
 #undef DEBUG
-#include "fine_peel.h"
+#include "count.h"
+#include "kheap.h"
 
 int main(int argc, char** argv)
 {
@@ -12,18 +13,12 @@ int main(int argc, char** argv)
     bool opExists = false;
     bool helpReq = false;
     bool readBin = false;
-    int numParts = 150;
     int peelSide = 0;
+    omp_set_num_threads(1);
     for (int i = 1; i < argc; i++)
     {  
         if (i + 1 != argc)
         {
-            if (strcmp(argv[i], "-t") == 0) // number of threads
-            {                 
-                NUM_THREADS = (unsigned int)atoi(argv[i + 1]);    // The next value in the array is your value
-                omp_set_num_threads(NUM_THREADS); 
-                i++;    // Move to the next flag
-            }
             if (strcmp(argv[i], "-i") == 0) // input graph filename
             {                 
                 graphFile = std::string(argv[i+1]);   // The next value in the array is your value
@@ -35,11 +30,6 @@ int main(int argc, char** argv)
                 opCntFile = std::string(argv[i+1]);
                 opExists = true;
                 i++; 
-            }
-            if (strcmp(argv[i], "-p") == 0)
-            {
-                numParts = (int)atoi(argv[i+1]);
-                i++;
             }
             if (strcmp(argv[i], "-s") == 0)
             {
@@ -55,22 +45,20 @@ int main(int argc, char** argv)
     }
     if (helpReq)
     {
-        printf("command to run is \n             ./decomposeParTip -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> -s <peelSide> \n\n");
+        printf("command to run is \n             ./decomposeSeq -i <inputFile> -o <outputFile> -s <peelSide> \n\n");
         printf("To peel U vertex set (LHS in edge list), use \"-s 0\", otherwise use \"-s 1\"\n");
         return 0;
     }
     if ((!ipExists) || ((peelSide != 0) && (peelSide != 1)))
     {
-        printf("ERROR: correct command is \n             ./decomposeParTip -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> -s <peelSide> \n\n");
+        printf("ERROR: correct command is \n             ./decomposeSeq -i <inputFile> -o <outputFile> -s <peelSide> \n\n");
         printf("To peel U vertex set (LHS in edge list), use \"-s 0\", otherwise use \"-s 1\"\n");
         return -1;
     }
     printf("reading graph file\n");
     G.read_graph(graphFile, peelSide);
-    //G.read_graph_bin(graphFile, peelSide);
     printf("graph file read\n");
     printf("# edges = %u, U  = %u, V = %u\n", G.numE, G.numU, G.numV); 
-//    G.dump_graph();
 
     double start = omp_get_wtime();
 
@@ -81,13 +69,11 @@ int main(int argc, char** argv)
     G.sort_deg(labelsToVertex);
     std::vector<intV> vertexToLabels;
     invertMap(labelsToVertex, vertexToLabels);
-    //print_list_horizontal(vertexToLabels);
 
     double sortDone = omp_get_wtime();
 
     printf("reordering the graph\n");
     G.reorder_in_place(vertexToLabels); 
-//    G.print_graph();
     double reOrderDone = omp_get_wtime();
 
     printf("counting butterflies\n");
@@ -97,7 +83,6 @@ int main(int argc, char** argv)
     double countDone = omp_get_wtime();
     intB totCnt = parallel_reduce<intB, intB>(butterflyCnt);
     printf("total butterflies = %lld\n", totCnt/4);
-    return 0;
     std::vector<intB> tipVal;
     tipVal.swap(butterflyCnt);
     
@@ -105,22 +90,67 @@ int main(int argc, char** argv)
     printf("TIME: sort = %lf, reordering = %lf, counting = %lf, rearranging = %lf, total = %lf\n", (sortDone-start)*1000, (reOrderDone-sortDone)*1000, (countDone-reOrderDone)*1000, (stop-countDone)*1000, (stop-start)*1000);
 
 
-    std::vector<std::pair<intB, intB>> partTipVals; //range of support values for each partition
-    std::vector<std::vector<intV>> partVertices; //list of vertices in each partition
-    std::vector<intB> partPeelWork;
-    numParts = create_balanced_partitions(G, tipVal, 0, wedgeCnt, numParts, partTipVals, partVertices, partPeelWork); 
-    ////write coarse decomposition details in a file
-    //print_partitioning_details(cdFile, G, tipVal, numParts, partTipVals, partVertices, partPeelWork);
-    double partsDone = omp_get_wtime();
-    printf("TIME to coarse decompose = %lf\n", (partsDone-stop)*1000);
-
-
-    
-    printf("beginning fine-grained decomposition\n");
-    double fineBegin = omp_get_wtime();
-    process_partitions(G, partVertices, partTipVals, partPeelWork, tipVal, wedgeCnt); 
-    double fineEnd = omp_get_wtime();
-    printf("TIME to fine decompose = %lf\n", (fineEnd-fineBegin)*1000);
+    printf("beginning decomposition\n");
+    //init priority queue
+    KHeap<intV, intB> queue(G.numU); 
+    std::vector<intV> vtxToIdx (G.numT, G.numT);
+    for (intV i=0; i<G.numU; i++)
+    {
+        queue.update(i, tipVal[G.uLabels[i]]); 
+        vtxToIdx[G.uLabels[i]] = i;
+    }
+    //reset wedge counts
+    std::vector<intV> &numW = wedgeCnt[0];
+    for (intV i=0; i<numW.size(); i++)
+        numW[i]=0;
+    //start peeling
+    intV finished = 0; 
+    std::vector<intV> hop2Neighs;
+    intB maxT = 0;
+    bool suppUp = false;
+    while(!queue.empty())
+    {
+        std::pair<intV, intB> kv = queue.top();
+        intV v = G.uLabels[kv.first];
+        intB k = kv.second;
+        queue.pop();
+        if (k==0) continue;
+       
+        intV deg;
+        std::vector<intV> &neighList = G.get_neigh(v, deg);
+        for (intV i=0; i<deg; i++)
+        {
+            intV neigh = neighList[i];
+            intV neighDeg;
+            std::vector<intV> &neighOfNeighList = G.get_neigh(neigh, neighDeg);
+            for (intV j=0; j<neighDeg; j++)
+            {
+                intV neighOfNeigh = neighOfNeighList[j];
+                if ((tipVal[neighOfNeigh] <= k)) continue;
+                if (numW[neighOfNeigh]==0) hop2Neighs.push_back(neighOfNeigh);
+                numW[neighOfNeigh]++; 
+            }
+        }        
+        for (auto x : hop2Neighs)
+        {
+            if (numW[x] >= 2)
+            {
+                suppUp = true;
+                intB butterflies = choose2<intB, intV>(numW[x]);
+                tipVal[x] = std::max(k, tipVal[x]-butterflies);
+                assert(vtxToIdx[x] < G.numT);
+                assert(tipVal[x] >= k);
+                queue.update(vtxToIdx[x], tipVal[x]); 
+            }
+            numW[x] = 0;
+        } 
+        hop2Neighs.clear();
+        maxT = k;
+    }
+    if (suppUp) printf("updated supports\n");
+    printf("maximum tip value = %lld\n", maxT);
+    double decEnd = omp_get_wtime();
+    printf("TIME to decompose = %lf\n", (decEnd-stop)*1000);
 
     if (opExists==true)
     {

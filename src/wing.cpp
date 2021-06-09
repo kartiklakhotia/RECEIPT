@@ -46,11 +46,6 @@ int main(int argc, char** argv)
                 numParts = (int)atoi(argv[i+1]);
                 i++;
             }
-            if (strcmp(argv[i], "-s") == 0)
-            {
-                peelSide = (int)atoi(argv[i+1]);
-                i++;
-            }
         }
         if (strcmp(argv[i], "-h") == 0)
         {
@@ -60,14 +55,12 @@ int main(int argc, char** argv)
     }
     if (helpReq)
     {
-        printf("command to run is \n             ./decomposeSeq -i <inputFile> -o <outputFile> -s <peelSide> \n\n");
-        printf("To peel U vertex set (LHS in edge list), use \"-s 0\", otherwise use \"-s 1\"\n");
+        printf("command to run is \n             ./decomposeParWing -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> \n\n");
         return 0;
     }
-    if ((!ipExists) || ((peelSide != 0) && (peelSide != 1)))
+    if ((!ipExists))
     {
-        printf("ERROR: correct command is \n             ./decomposeSeq -i <inputFile> -o <outputFile> -s <peelSide> \n\n");
-        printf("To peel U vertex set (LHS in edge list), use \"-s 0\", otherwise use \"-s 1\"\n");
+        printf("ERROR: correct command is \n             ./decomposeParWing -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> \n\n");
         return -1;
     }
     printf("reading graph file\n");
@@ -323,7 +316,7 @@ int main(int argc, char** argv)
     #pragma omp parallel for num_threads(NUM_THREADS) reduction (max:maxT)
     for (intE i=0; i<G.numE; i++)
         maxT = std::max(tipVal[i], maxT); 
-    printf("maximum tip value = %lld\n", maxT);
+    printf("maximum wing number = %lld\n", maxT);
 
     printf("TIME: decompose init = %lf, coarse = %lf, part BEG construction = %lf, fine = %lf, cpu clk time fine = %lf, total = %lf\n", (initDone-stop)*1000, (coarseDone-initDone-MEM_ALLOC_COARSE)*1000, (partBEGDone-coarseDone-MEM_ALLOC_PART)*1000, (fineDone-partBEGDone-MEM_ALLOC_FINE)*1000, ((double)(clockEnd-clockStart)/CLOCKS_PER_SEC)*1000, (fineDone-start-MEM_ALLOC_TIME)*1000);
 
