@@ -2,10 +2,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <numeric>
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
-#include <assert.h>
+#include <cassert>
 #include <utility>
 #include <omp.h>
 #include <string>
@@ -15,8 +16,17 @@
 #include <atomic>
 #include <boost/sort/sort.hpp>
 
+
+double MEM_ALLOC_TIME = 0.0;
+
+
 unsigned int NUM_THREADS = 1;
 size_t SERIAL_TO_PAR_THRESH = NUM_THREADS*100;
+
+
+const unsigned locBuffSizeLarge = 2048;
+const unsigned locBuffSizeSmall = 256;
+
 
 template <typename T1, typename T2>
 class valCompareGreater
@@ -54,6 +64,25 @@ void free_vec (std::vector<T> &vec)
     std::vector<T> dummy;
     vec.swap(dummy);
 }
+
+
+template <typename T>
+void serial_init (std::vector<T> &vec, T val)
+{
+    size_t numElems = vec.size();
+    for (size_t i=0; i<numElems; i++)
+        vec[i] = val;
+}
+
+template <typename T>
+void parallel_init (std::vector<T> &vec, T val)
+{
+    size_t numElems = vec.size();
+    #pragma omp parallel for
+    for (size_t i=0; i<numElems; i++)
+        vec[i] = val;
+}
+
 
 template <typename Tout, typename Tin>
 Tout parallel_reduce (std::vector<Tin> &in)
@@ -194,6 +223,14 @@ void serial_sort_kv (std::vector<T1> &idxVec, std::vector<T2> &valueVec)
     std::stable_sort(idxVec.begin(), idxVec.end(), valCompareGreater<T1,T2>(valueVec));  
 }
 
+
+template <typename T1, typename T2>
+void serial_sort_kv_increasing (std::vector<T1> &idxVec, std::vector<T2> &valueVec)
+{
+    std::stable_sort(idxVec.begin(), idxVec.end(), valCompareLesser<T1,T2>(valueVec));  
+}
+
+
 //sort keys based on the values. Note that this does not change the value array
 //The value array is indexed by the keys
 template <typename T1, typename T2>
@@ -215,6 +252,27 @@ void parallel_sort_indices (std::vector<T1> &idxVec, compare comp)
 {
     boost::sort::parallel_stable_sort(idxVec.begin(), idxVec.end(), comp, NUM_THREADS);  
 }
+
+
+//unstable versions for better performance
+template <typename T1, typename T2>
+void parallel_unstable_sort_kv (std::vector<T1> &idxVec, std::vector<T2> &valueVec)
+{
+    boost::sort::block_indirect_sort(idxVec.begin(), idxVec.end(), valCompareGreater<T1,T2>(valueVec), NUM_THREADS);  
+}
+
+template <typename T1, typename T2>
+void parallel_unstable_sort_kv_increasing (std::vector<T1> &idxVec, std::vector<T2> &valueVec)
+{
+    boost::sort::block_indirect_sort(idxVec.begin(), idxVec.end(), valCompareLesser<T1,T2>(valueVec), NUM_THREADS);  
+}
+
+template <typename T1, class compare>
+void parallel_unstable_sort_indices (std::vector<T1> &idxVec, compare comp)
+{
+    boost::sort::block_indirect_sort(idxVec.begin(), idxVec.end(), comp, NUM_THREADS);  
+}
+
 
 template <typename T>
 void invertMap (std::vector<T> &ipMap, std::vector<T> &opMap)
@@ -453,6 +511,66 @@ void parallel_compact_kv(std::vector<T> &in, std::vector<uint8_t> &keep, std::ve
     }
 } 
 
+
+
+//Uses function pointer to test whether to keep or not
+//More generalizable
+template <typename T, typename fType>
+T parallel_compact_func(std::vector<T> &in, fType f, std::vector<T> &out, T currElems)
+{
+    if (out.size() < currElems) out.resize(currElems);
+    //if (out.size() < in.size()) out.resize(in.size());
+    T numElems = 0;
+    if (in.size() < NUM_THREADS*16)
+    {
+        //for (size_t i=0; i<in.size(); i++)
+        for (T i=0; i<currElems; i++)
+            if (f(in[i])) out[numElems++] = in[i];
+        return numElems;
+    }
+    std::vector<T> activePerThread(NUM_THREADS, 0);
+    std::vector<T> offset;
+    //size_t partSize = (in.size()-1)/NUM_THREADS + 1;
+    T partSize = (currElems-1)/NUM_THREADS+1;
+    #pragma omp parallel 
+    {
+        size_t tid = omp_get_thread_num();
+        T start = partSize*tid;
+        T end = std::min(start+partSize, currElems);
+        T numActive = 0;
+        for (T i=start; i<end; i++)
+            numActive += (f(in[i]) > 0);
+        activePerThread[tid] = numActive;
+        #pragma omp barrier
+        #pragma omp single
+        {
+            serial_prefix_sum(offset, activePerThread);
+            //out.resize(offset[NUM_THREADS]);
+        }
+        #pragma omp barrier
+        numActive = 0;
+        for (T i=start; i<end; i++)
+        {
+            if (f(in[i]))
+            {
+                out[offset[tid]+numActive] = in[i];
+                numActive++;
+            }
+        }
+    }
+    return offset[NUM_THREADS];
+} 
+
+template <typename T, typename fType>
+T parallel_compact_func_in_place(std::vector<T> &in, fType f, std::vector<T> &out, T currElems)
+{
+    T numElems = parallel_compact_func(in, f, out, currElems);
+    in.swap(out); 
+    return numElems;
+} 
+
+
+
 //copy entire vector
 template <typename T>
 void parallel_vec_copy(std::vector<T> &op, std::vector<T> &in)
@@ -472,4 +590,18 @@ void parallel_vec_elems_copy(std::vector<T> &op, std::vector<T> &in, std::vector
     #pragma omp parallel for 
     for (eT i=0; i<numElems; i++)
         op[elems[i]] = in[elems[i]];
+}
+
+//update global queue from thread's local queues
+template <typename buffType, typename ptrType>
+inline ptrType updateGlobalQueue (unsigned locQWrPtr, const unsigned locQSize, ptrType &globQWrPtr, std::array<buffType, locBuffSizeLarge> &locBuff, std::vector<buffType> &globBuff)
+{
+    if (locQWrPtr >= locQSize)
+    {
+        ptrType tempIdx = __sync_fetch_and_add(&globQWrPtr, (ptrType)locQSize);
+        for (ptrType bufIdx = 0; bufIdx < locQSize; bufIdx++)
+            globBuff[tempIdx + bufIdx] = locBuff[bufIdx];
+        locQWrPtr = 0;
+    }
+    return locQWrPtr;
 }

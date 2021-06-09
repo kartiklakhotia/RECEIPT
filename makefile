@@ -1,21 +1,36 @@
 CC      = g++
 CPPFLAGS= -O3 -c -std=c++14 -fopenmp -mavx -I./include/ 
 LDFLAGS = -fopenmp -m64 -lpthread 
-SOURCES = src/main.cpp 
-SOURCES_SEQ = baselines/seq.cpp
-OBJECTS = $(SOURCES:.cpp=.o)
-OBJECTS_SEQ = $(SOURCES_SEQ:.cpp=.o)
 
-all: decomposePar decomposeSeq
+SOURCES_TIP = src/tip.cpp 
+SOURCES_SEQ_TIP = baselines/seq_tip.cpp
 
-decomposePar : $(OBJECTS)  
+SOURCES_WING = src/wing.cpp
 
-	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
+OBJECTS_TIP = $(SOURCES_TIP:.cpp=.o)
+OBJECTS_SEQ_TIP = $(SOURCES_SEQ_TIP:.cpp=.o)
+
+OBJECTS_WING = $(SOURCES_WING:.cpp=.o)
+
+all: decomposeParTip decomposeSeqTip decomposeParWing
+
+decomposeParTip : $(OBJECTS_TIP)  
+
+	$(CC) $(OBJECTS_TIP) $(LDFLAGS) -o $@
 
 
-decomposeSeq : $(OBJECTS_SEQ)  
+decomposeSeqTip : $(OBJECTS_SEQ_TIP)  
 
-	$(CC) $(OBJECTS_SEQ) $(LDFLAGS) -o $@
+	$(CC) $(OBJECTS_SEQ_TIP) $(LDFLAGS) -o $@
+
+
+
+
+
+decomposeParWing : $(OBJECTS_WING)  
+
+	$(CC) $(OBJECTS_WING) $(LDFLAGS) -o $@
+
 
 
 .cpp.o : 

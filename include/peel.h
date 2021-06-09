@@ -1,5 +1,20 @@
 #include "count.h"
 
+
+
+//buffers/arrays for histogramming edges/edge workload for wing decomposition
+std::vector<std::array<intB, locBuffSizeLarge>> thdBloomBuff;
+std::vector<std::array<intE, locBuffSizeLarge>> thdEdgeBuff;
+std::vector<std::vector<intE>> histCountPerThread;
+std::vector<intE> histCountGlobal;
+std::vector<intE> histAccGlobal;
+
+std::vector<std::vector<intB>> histWorkPerThread;
+std::vector<intB> histWorkGlobal;
+std::vector<intB> histWorkAccGlobal;
+
+
+
 /*****************************************************************************
 Re-count and generate updates for 2-hop neighbors of deleted vertices
 Inputs:
@@ -399,7 +414,7 @@ Arguments:
     4. lowerBound -> lowest tip value
     5. peelWork -> work required to peel the vertices
 ******************************************************************************/
-std::tuple<intB, intV, intV> find_range (std::vector<intV> &vertices, std::vector<intB>&tipVal, intB targetPeelComplexity, intB lowerBound, intB upperBound, std::vector<intE> &peelWork)
+std::tuple<intB, intV, intV> find_range (std::vector<intV> &vertices, std::vector<intB>&tipVal, intB targetPeelComplexity, intB lowerBound, std::vector<intE> &peelWork)
 {
     parallel_sort_kv_increasing<intV, intB>(vertices, tipVal);  //sort vertices on their current support
 
@@ -690,3 +705,481 @@ void read_partitioning_details (std::string &filename, Graph &G, std::vector<int
         partVertices[pIn[i]].push_back(v);
     }
 }
+
+
+
+
+
+/*****************************************************************************
+Compute upper bound on the maximum wing number
+Inputs:
+    1. eIds -> edge indices sorted on current support 
+    2. tipVal -> vector of current support of edges
+    3. nEdgesRem -> number of not yet peeled edges in eIds vector
+Outputs:
+    returns an upper bound on max wing number
+******************************************************************************/
+intE find_upper_bound_wing(std::vector<intE> &eIds, std::vector<intE> &tipVal, intE nEdgesRem)
+{
+    parallel_unstable_sort_kv_increasing(eIds, tipVal);
+    intE ub = 0;
+    if (nEdgesRem > 10*NUM_THREADS)
+    {
+        intE BS = (nEdgesRem-1)/NUM_THREADS + 1;
+        #pragma omp parallel num_threads(NUM_THREADS) reduction (max:ub)
+        {
+            unsigned tid = omp_get_thread_num();
+            intE start = tid*BS;
+            intE end = std::min(nEdgesRem, start+BS);
+            for (intE i = end-1; i>=start; i--)
+            {
+                intE currSupp = tipVal[eIds[i]];
+                intE numEdgesWithHigherSupp = nEdgesRem - i;
+                if (numEdgesWithHigherSupp >= currSupp)
+                {
+                    ub = std::max(ub, currSupp);
+                    break;
+                }
+                else
+                    ub = std::max(std::min(currSupp, numEdgesWithHigherSupp), ub);
+            }
+        }
+    }
+    else
+    {
+        for (intE i=nEdgesRem-1; i>=0; i--)
+        {
+            intE currSupp = tipVal[eIds[i]];
+            intE numEdgesWithHigherSupp = nEdgesRem - i;
+            if (numEdgesWithHigherSupp >= currSupp)
+            {
+                ub = std::max(ub, currSupp);
+                break;
+            }
+            else
+                ub = std::max(std::min(currSupp, numEdgesWithHigherSupp), ub);
+        }
+    }
+    return ub;
+}
+
+
+/*****************************************************************************
+Re-compute upper bound on the maximum wing number and populate histograms
+for range determination
+Inputs:
+    1. eIds -> edge indices sorted on current support 
+    2. tipVal -> vector of current support of edges
+    3. nEdgesRem -> number of not yet peeled edges in eIds vector
+    4. minTipVal -> lower bound based on edges peeled so far
+    5. currUb -> previous upper bound
+Outputs:
+    returns an upper bound on max wing number
+******************************************************************************/
+intE update_upper_bound_wing(std::vector<intE> &eIds, intE nEdgesRem, std::vector<intE> &tipVal, intE minTipVal, intE currUb)
+{
+    intE range = currUb - minTipVal + 1;
+    if (histCountGlobal.size() < range)
+        histCountGlobal.resize(range);
+    if (histAccGlobal.size() < range)
+        histAccGlobal.resize(range);
+    if (histCountPerThread.size() < NUM_THREADS)
+        histCountPerThread.resize(NUM_THREADS);
+
+    intE edgesPerThread = (nEdgesRem-1)/NUM_THREADS + 1;
+    intE BS = (range-1)/NUM_THREADS + 1;
+    intE newUb = minTipVal;
+    #pragma omp parallel num_threads(NUM_THREADS)
+    {
+        intE tid = omp_get_thread_num();
+
+        #pragma omp for
+        for (intE i=0; i<range; i++)
+            histCountGlobal[i] = 0;
+
+        std::vector<intE> &locHistCount = histCountPerThread[tid];
+        if (locHistCount.size() < range)
+            locHistCount.resize(range);
+        for (intE i=0; i<range; i++)
+            locHistCount[i] = 0;
+
+        #pragma omp for
+        for (intE i=0; i<nEdgesRem; i++)
+        {
+            intE val = std::min(tipVal[eIds[i]], currUb) - minTipVal;
+            assert(val < range);
+            //reverse for suffix sum
+            locHistCount[range-val-1]++; 
+        }
+
+        intE ptr = rand()%range;
+        for (intE i=0; i<range; i++)
+        {
+            intE idx = (ptr+i)%range;
+            __sync_fetch_and_add(&histCountGlobal[idx], locHistCount[idx]);
+        }
+
+        #pragma omp barrier
+        //PREFIX SUM
+        intE start = BS*tid;
+        intE end = std::min((intE)(start+BS), range);
+        
+
+        if (range > NUM_THREADS*10)
+        {
+            histAccGlobal[start] = histCountGlobal[start];
+    
+            for (intE i=start+1; i<end; i++)
+                histAccGlobal[i] = histAccGlobal[i-1] + histCountGlobal[i];
+    
+            #pragma omp barrier
+            #pragma omp single
+            {
+                for (size_t i=1; i<NUM_THREADS; i++)
+                {
+                    intE prevEnd = BS*i; if (prevEnd >= range) continue; 
+                    intE tend = std::min(prevEnd + BS, range);
+                    histAccGlobal[tend-1] += histAccGlobal[prevEnd-1];
+                }
+            }
+            #pragma omp barrier
+    
+            if (tid > 0)
+            {
+                intB blockScan = histAccGlobal[start-1];
+                for (intE i=start; i<end-1; i++)
+                    histAccGlobal[i] += blockScan;
+            }
+            intE locMax = 0;
+            if (end > start)
+            {
+                for (intE i=start; i<end; i++)
+                {
+                    intE supp = (range - i - 1)  + minTipVal;
+                    if (histAccGlobal[i] >= supp)
+                    {
+                        locMax = supp;
+                        break;
+                    }
+                }
+                #pragma omp critical
+                {
+                    if (locMax > newUb)
+                        newUb = locMax;
+                }
+            }
+        }
+        else
+        {
+            #pragma omp single
+            {
+                histAccGlobal[0] = histCountGlobal[0];
+                for (intE i=1; i<range; i++)
+                    histAccGlobal[i] = histAccGlobal[i-1] + histCountGlobal[i];
+                for (intE i=0; i<range; i++)
+                {
+                    intE supp = (range - i - 1) + minTipVal;
+                    if (histAccGlobal[i] >= supp)
+                    {
+                        newUb = supp;
+                        break;
+                    } 
+                }
+                assert(histAccGlobal[range-1]==nEdgesRem);
+            }
+        }
+    }
+    return newUb;
+}
+
+
+
+
+/*****************************************************************************
+Compute upper bound for the range of a partition
+Inputs:
+    1. eIds -> edge indices sorted on current support 
+    2. tipVal -> vector of current support of edges
+    3. nPartsRem -> number of partitions remaining to be created
+    4. nEdgesRem -> number of not yet peeled edges in eIds vector
+    5. scaling -> scaling factor to apply
+    6. tipMin -> lower bound based on partition's wing number range
+    7. tipMax -> recently updated upper bound
+    8. oldMax -> previous upper bound
+Outputs:
+    1. range upper bound for the partition
+    2. estimated work value for the partition based on current edge support
+******************************************************************************/
+std::tuple<intE, intB> find_upper_bound_part(std::vector<intE> &eIds, std::vector<intE> &tipVal, intE nPartsRem, intE nEdgesRem, double scaling, intE tipMin, intE tipMax, intE oldMax)
+{
+    intE range = tipMax - tipMin + 1;
+    intE oldRange = oldMax - tipMin + 1;
+
+    std::vector<intB> &workPerSupp = histWorkGlobal; if (workPerSupp.size() < range) workPerSupp.resize(range);
+    std::vector<intB> &accWork = histWorkAccGlobal; if (accWork.size() < range) accWork.resize(range);
+
+
+    intE BS = (range-1)/NUM_THREADS + 1;
+
+    intE newMaxCount = histCountGlobal[oldMax-tipMax];
+    #pragma omp parallel num_threads (NUM_THREADS)
+    {
+        unsigned tid = omp_get_thread_num();
+        //count edges with higher support than new max into the bin of new max value
+        //histCountGlobal[i] is the no. of edges with support oldMax - (tipMin + i)
+        #pragma omp for reduction (+:newMaxCount)
+        for (intE i=0; i<oldMax-tipMax; i++)
+            newMaxCount += histCountGlobal[i];
+        #pragma omp single
+        {
+            histCountGlobal[oldMax-tipMax] = newMaxCount;
+        }
+
+        #pragma omp for
+        for (intE i=0; i<range; i++)
+        {
+            intB val = i + tipMin;
+            intE countIdx = oldMax - val; 
+            intB edgeCnt = histCountGlobal[countIdx];
+            workPerSupp[i] = edgeCnt*val; 
+        }
+
+        //PREFIX SUM counts to compute write offsets for each support value
+        if (range < 10*NUM_THREADS)
+        {
+            #pragma omp single
+            {
+                accWork[0] = workPerSupp[0];
+                for (intE i=1; i<range; i++) accWork[i] = accWork[i-1]+workPerSupp[i];
+            }
+        }
+        else
+        {
+            intE start = BS*tid;
+            intE end = std::min((intE)(start+BS), range);
+        
+            if (start < range) accWork[start] = workPerSupp[start];
+
+            for (intE i=start+1; i<end; i++)
+                accWork[i] = accWork[i-1] + workPerSupp[i];
+
+            #pragma omp barrier
+            #pragma omp single
+            {
+                for (size_t i=1; i<NUM_THREADS; i++)
+                {
+                    intE prevEnd = BS*i; if (prevEnd >= range) continue; 
+                    intE tend = std::min(prevEnd + BS, range);
+                    accWork[tend-1] += accWork[prevEnd-1];
+                }
+            }
+            #pragma omp barrier
+
+            if (tid > 0)
+            {
+                intB blockScan = accWork[start-1];
+                for (intE i=start; i<end-1; i++)
+                    accWork[i] += blockScan;
+            }
+        }
+    }
+
+    
+    //dynamic average with scaling
+    intB tgtWorkVal = (long long int)(double(accWork[range-1]/nPartsRem)*scaling);
+    //find smallest support value at which work is greater than average
+    intE partUB = (std::lower_bound(accWork.begin(), accWork.begin()+range, tgtWorkVal) - accWork.begin()) + tipMin + 1; 
+    tgtWorkVal = accWork[std::min(partUB-tipMin-1, range-1)];
+    return std::make_tuple(partUB, tgtWorkVal);
+             
+}
+
+
+//compute scaling factor
+double compute_scale(std::vector<intE> &partEdges, std::vector<intE> &initSupp, intE maxSupp, intB tgtWork)
+{
+    intB actualWork = 0;
+    #pragma omp parallel for num_threads(NUM_THREADS) reduction (+:actualWork)
+    for (intE i=0; i<partEdges.size(); i++)
+        actualWork += std::min(initSupp[partEdges[i]], maxSupp);
+    if (actualWork == 0) return 1.0;
+    assert(actualWork >= tgtWork);
+    double scaling = ((double)tgtWork)/((double)actualWork);
+    return scaling;
+}
+
+
+
+//find active edges for the first peeling iteration of a partition
+void find_active_edges(std::vector<intE> &eIds, std::vector<intE> &tipVal, std::vector<uint8_t> &isActive, intE nEdgesRem, intE kLo, intE kHi, std::vector<intE> &activeEdges, intE &activeEdgePtr)
+{
+    if (thdEdgeBuff.size() < NUM_THREADS) thdEdgeBuff.resize(NUM_THREADS);
+    #pragma omp parallel num_threads(NUM_THREADS)
+    {
+        size_t tid = omp_get_thread_num();
+        std::array<intE, locBuffSizeLarge> &locBuff = thdEdgeBuff[tid]; unsigned locBuffPtr = 0;
+        #pragma omp for
+        for (intE i=0; i<nEdgesRem; i++)
+        {
+            intE e = eIds[i];
+            assert(tipVal[e] >= kLo);
+            if (tipVal[e] < kHi)
+            {
+                locBuff[locBuffPtr++] = e;
+                locBuffPtr = updateGlobalQueue(locBuffPtr, locBuffSizeLarge, activeEdgePtr, locBuff, activeEdges);   
+                isActive[e] = true;
+            }
+        }
+        if (locBuffPtr > 0)
+            locBuffPtr = updateGlobalQueue(locBuffPtr, locBuffPtr, activeEdgePtr, locBuff, activeEdges);
+    }
+    
+} 
+
+
+
+
+
+/*****************************************************************************
+Update support of edges in a peeling iteration
+Inputs:
+    1. BEG -> BE-Index
+    2. tipVal -> vector of support of edges
+    3. kLo, kHi -> partition range
+    4. activeEdges, activeEdgePtr, activeEdgeStartOffset -> set of edges to Peel
+    5. isActive -> boolean array to indicate if an edge is active
+    6. isPeeled -> boolean array to indicate if an edge is already peeled
+Outputs:
+    1. updated edge supports
+    2. updated list of active edges 
+    3. returns a pointer to indicate the newly added active edges in activeEdges[] array 
+Arguments:
+    1. bloomUpdates -> vector to accumulate updates at blooms 
+    2. activeBlooms -> array to store blooms with non-zero updates
+******************************************************************************/
+intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, intE kHi, std::vector<intE> &activeEdges, intE activeEdgePtr, intE activeEdgeStartOffset, std::vector<intE> &bloomUpdates, std::vector<intB> &activeBlooms, std::vector<uint8_t> &isActive, std::vector<uint8_t> &isPeeled)
+{
+    intE prevActiveEdgePtr = activeEdgePtr; 
+    intB activeBloomPtr = 0; 
+
+    if (thdBloomBuff.size() < NUM_THREADS) thdBloomBuff.resize(NUM_THREADS);
+    if (thdEdgeBuff.size() < NUM_THREADS) thdEdgeBuff.resize(NUM_THREADS);
+
+
+    #pragma omp parallel num_threads(NUM_THREADS) 
+    {
+        size_t tid = omp_get_thread_num();
+
+        std::array<intB, locBuffSizeLarge> &locBloomBuff = thdBloomBuff[tid]; unsigned locBloomBuffPtr = 0;
+        std::array<intE, locBuffSizeLarge> &locEdgeBuff = thdEdgeBuff[tid]; unsigned locEdgeBuffPtr = 0;
+
+        //Explore active edges and activate blooms
+        #pragma omp for schedule (dynamic,3)
+        for (intE i=activeEdgeStartOffset; i<prevActiveEdgePtr; i++)
+        {
+            intE e = activeEdges[i];
+            assert(!isPeeled[e]);
+            assert(isActive[e]);
+            for (intE j=0; j<BEG.edgeDegree[e]; j++)
+            {
+                intB bloomId = BEG.edgeEI[BEG.edgeVI[e]+j].first;
+                intE neighEdgeId = BEG.edgeEI[BEG.edgeVI[e]+j].second;
+                if (isPeeled[neighEdgeId] || (BEG.bloomDegree[bloomId]<2)) continue;
+                if (isActive[neighEdgeId] && (neighEdgeId>e)) continue;
+
+                intE updateVal = BEG.bloomDegree[bloomId]-1;
+                //update neighbor edge
+                intE prevTipVal = tipVal[neighEdgeId];
+                if (prevTipVal >= kHi) 
+                {
+                    prevTipVal = __sync_fetch_and_sub(&tipVal[neighEdgeId], updateVal);
+                    if ((prevTipVal < kHi + updateVal) && (prevTipVal >= kHi))
+                    {
+                        locEdgeBuff[locEdgeBuffPtr++] = neighEdgeId;
+                        locEdgeBuffPtr = updateGlobalQueue(locEdgeBuffPtr, locBuffSizeLarge, activeEdgePtr, locEdgeBuff, activeEdges); 
+                    }
+                    else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[neighEdgeId], updateVal);
+                }
+
+                //update bloom
+                intE numDels = __sync_fetch_and_add(&bloomUpdates[bloomId], (intE)1);
+                if (numDels==0)
+                {
+                    locBloomBuff[locBloomBuffPtr++] = bloomId;
+                    locBloomBuffPtr = updateGlobalQueue(locBloomBuffPtr, locBuffSizeLarge, activeBloomPtr, locBloomBuff, activeBlooms);
+                } 
+            } 
+        }
+        if (locBloomBuffPtr > 0)
+            locBloomBuffPtr = updateGlobalQueue(locBloomBuffPtr, locBloomBuffPtr, activeBloomPtr, locBloomBuff, activeBlooms);
+
+        #pragma omp barrier
+
+        #pragma omp for
+        for (intE i=activeEdgeStartOffset; i<prevActiveEdgePtr; i++)
+        {
+            intE e = activeEdges[i];
+            isActive[e] = false;
+            isPeeled[e] = true; 
+        }
+
+        #pragma omp barrier
+
+        //explore active blooms and update edge supports
+        #pragma omp for schedule (dynamic,6)
+        for (intB i=0; i<activeBloomPtr; i++)
+        {
+            intB bloomId = activeBlooms[i];
+            intE numDels = bloomUpdates[bloomId];
+            bloomUpdates[bloomId] = 0;
+
+            intB baseIndex = BEG.bloomVI[bloomId];
+            for (intE j=0; j<BEG.bloomDegree[bloomId]; j++) 
+            {
+                intE e1Id = BEG.bloomEI[baseIndex + j].first;
+                intE e2Id = BEG.bloomEI[baseIndex + j].second;
+
+                if (isPeeled[e1Id] || isPeeled[e2Id])
+                {
+                    std::swap(BEG.bloomEI[baseIndex+j], BEG.bloomEI[baseIndex+BEG.bloomDegree[bloomId]-1]);
+                    j--;
+                    BEG.bloomDegree[bloomId]--;
+                    continue;
+                }
+
+                intE prevTipVal = tipVal[e1Id];
+                if (prevTipVal >= kHi) 
+                {
+                    prevTipVal = __sync_fetch_and_sub(&tipVal[e1Id], numDels);
+                    if ((prevTipVal < kHi + numDels) && (prevTipVal >= kHi))
+                    {
+                        locEdgeBuff[locEdgeBuffPtr++] = e1Id;
+                        locEdgeBuffPtr = updateGlobalQueue(locEdgeBuffPtr, locBuffSizeLarge, activeEdgePtr, locEdgeBuff, activeEdges); 
+                    }
+                    else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[e1Id], numDels);
+                }
+
+                prevTipVal = tipVal[e2Id];
+                if (prevTipVal >= kHi) 
+                {
+                    prevTipVal = __sync_fetch_and_sub(&tipVal[e2Id], numDels);
+                    if ((prevTipVal < kHi + numDels) && (prevTipVal >= kHi))
+                    {
+                        locEdgeBuff[locEdgeBuffPtr++] = e2Id;
+                        locEdgeBuffPtr = updateGlobalQueue(locEdgeBuffPtr, locBuffSizeLarge, activeEdgePtr, locEdgeBuff, activeEdges); 
+                    }
+                    else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[e2Id], numDels);
+                }
+            }
+        }
+        if (locEdgeBuffPtr > 0)
+            locEdgeBuffPtr = updateGlobalQueue(locEdgeBuffPtr, locEdgeBuffPtr, activeEdgePtr, locEdgeBuff, activeEdges);
+
+        #pragma omp barrier
+
+        #pragma omp for
+        for (intE i=prevActiveEdgePtr; i<activeEdgePtr; i++)
+            isActive[activeEdges[i]] = true;
+    }
+    return activeEdgePtr;
+} 
