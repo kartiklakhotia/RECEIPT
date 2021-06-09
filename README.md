@@ -19,8 +19,8 @@ It generates the following executables:
 2. **decomposeParTip** - parallel vertex peeling (for tip decomposition)
 
 Baselines:
-1. **decomposeSeqTip** - sequential vertex peeling (for tip decomposition)
-2. **decomposeSeqWing** - sequential edge peeling (for wing decomposition)
+1. **decomposeSeqWing** - sequential edge peeling (for wing decomposition)
+2. **decomposeSeqTip** - sequential vertex peeling (for tip decomposition)
 
 
 ## Prerequisites
