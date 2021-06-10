@@ -586,7 +586,7 @@ Outputs:
 Arguments:
     1. wedgeCnt -> 2D array used to accumulate wedges during counting
 ******************************************************************************/
-void count_per_edge (Graph &G, std::vector<intB> &opCnt, std::vector<std::vector<intV>> &wedgeCnt)
+void count_per_edge (Graph &G, std::vector<intE> &opCnt, std::vector<std::vector<intV>> &wedgeCnt)
 {
     if (opCnt.size() != G.numE)
         opCnt.resize(G.numE);
@@ -942,7 +942,7 @@ Outputs:
 Arguments:
     1. wedgeCnt -> 2D array used to accumulate wedges during counting
 ******************************************************************************/
-void sg_count_and_create_BE_Index (Graph &G, std::vector<bool> &isEdgeInSG, std::vector<bool> &isEdgeComputed, std::vector<intB> &opCnt, BEGraphLoMem &BEG, std::vector<std::vector<intV>> &wedgeCnt)
+void sg_count_and_create_BE_Index (Graph &G, std::vector<bool> &isEdgeInSG, std::vector<bool> &isEdgeComputed, std::vector<intE> &opCnt, BEGraphLoMem &BEG, std::vector<std::vector<intV>> &wedgeCnt)
 {
     double start, end;
 

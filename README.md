@@ -8,6 +8,10 @@ and creates independent tasks to process the partitions concurrently.
 It can decompose the largest open bipartite datasets in few minutes, orders of magnitude 
 faster than the baselines.
 
+|![Graphical Illustration of PBNG](twoPhased.jpg)|
+|:--:|
+|**Graphical Illustration of two-phased peeling in PBNG**|
+
 ## Compile
 ```
 make
@@ -21,6 +25,11 @@ It generates the following executables:
 Baselines:
 1. **decomposeSeqTip** - sequential vertex peeling (for tip decomposition)
 2. **decomposeSeqWing** - sequential edge peeling (for wing decomposition)
+3. **decomposePCWing** - progressive compression approach for wing decomposition
+
+Sources:
+1. [Sequential Tip/Wing Decomposition algorithm](http://sariyuce.com/bnd.tar)
+2. [Progressive Compression Wing Decomposition](https://arxiv.org/pdf/2001.06111.pdf)
 
 
 ## Prerequisites
@@ -87,9 +96,6 @@ u t
 ```
 where `u` is the vertex id and `t` is it's tip number
 
-
-## Baselines
-[Sequential Tip/Wing Decomposition algorithm](http://sariyuce.com/bnd.tar)
 
 ## Paper
 Please refer to the paper [RECEIPT: REfine CoarsE-grained IndePendent Tasks for Parallel Tip decomposition of Bipartite Graphs](https://dl.acm.org/doi/abs/10.5555/3430915.3442438)

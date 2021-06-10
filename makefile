@@ -7,14 +7,16 @@ SOURCES_SEQ_TIP = baselines/seq_tip.cpp
 
 SOURCES_WING = src/wing.cpp
 SOURCES_SEQ_WING = baselines/seq_wing.cpp
+SOURCES_PC_WING = baselines/pc_wing.cpp
 
 OBJECTS_TIP = $(SOURCES_TIP:.cpp=.o)
 OBJECTS_SEQ_TIP = $(SOURCES_SEQ_TIP:.cpp=.o)
 
 OBJECTS_WING = $(SOURCES_WING:.cpp=.o)
 OBJECTS_SEQ_WING = $(SOURCES_SEQ_WING:.cpp=.o)
+OBJECTS_PC_WING = $(SOURCES_PC_WING:.cpp=.o)
 
-all: decomposeParTip decomposeSeqTip decomposeParWing decomposeSeqWing
+all: decomposeParTip decomposeSeqTip decomposeParWing decomposeSeqWing decomposePCWing
 
 decomposeParTip : $(OBJECTS_TIP)  
 
@@ -35,6 +37,10 @@ decomposeParWing : $(OBJECTS_WING)
 decomposeSeqWing : $(OBJECTS_SEQ_WING)  
 
 	$(CC) $(OBJECTS_SEQ_WING) $(LDFLAGS) -o $@
+
+decomposePCWing : $(OBJECTS_PC_WING)  
+
+	$(CC) $(OBJECTS_PC_WING) $(LDFLAGS) -o $@
 
 
 

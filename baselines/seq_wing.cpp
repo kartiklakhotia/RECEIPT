@@ -40,12 +40,12 @@ int main(int argc, char** argv)
     }
     if (helpReq)
     {
-        printf("command to run is \n             ./decomposeSeq -i <inputFile> -o <outputFile> \n\n");
+        printf("command to run is \n             ./decomposeSeqWing -i <inputFile> -o <outputFile> \n\n");
         return 0;
     }
     if ((!ipExists))
     {
-        printf("ERROR: correct command is \n             ./decomposeSeq -i <inputFile> -o <outputFile> \n\n");
+        printf("ERROR: correct command is \n             ./decomposeSeqWing -i <inputFile> -o <outputFile> \n\n");
         return -1;
     }
     printf("reading graph file\n");
@@ -75,13 +75,13 @@ int main(int argc, char** argv)
     double labelingDone = omp_get_wtime();
 
     printf("counting butterflies\n");
-    std::vector<intB> butterflyCnt (G.numE);
+    std::vector<intE> butterflyCnt (G.numE);
     std::vector<std::vector<intV>> wedgeCnt (NUM_THREADS, std::vector<intV> (G.numT, 0));
     count_per_edge(G, butterflyCnt, wedgeCnt);
     double countDone = omp_get_wtime();
-    intB totCnt = parallel_reduce<intB, intB>(butterflyCnt);
+    intB totCnt = parallel_reduce<intB, intE>(butterflyCnt);
     printf("total butterflies = %lld\n", totCnt/4);
-    std::vector<intB> tipVal;
+    std::vector<intE> tipVal;
     tipVal.swap(butterflyCnt);
     
     double stop = omp_get_wtime();
@@ -94,7 +94,7 @@ int main(int argc, char** argv)
     edgeId_to_vertices(G, eIdToV);
 
     //init priority queue
-    KHeap<intE, intB> queue(G.numE); 
+    KHeap<intE, intE> queue(G.numE); 
     for (intV i=0; i<G.numE; i++)
         queue.update(i, tipVal[i]); 
 
@@ -120,17 +120,17 @@ int main(int argc, char** argv)
     std::vector<intV> hop2Neighs (std::max(G.numU, G.numV));
     intV hop2NeighsPtr = 0;
     
-    intB maxT = 0;
+    intE maxT = 0;
     int numEdgesPeeled = 0;
     while(!queue.empty())
     {
         numEdgesPeeled++;
         assert(numEdgesPeeled <= G.numE);
         //std::cout << numEdgesPeeled << "\r";
-        std::pair<intE, intB> kv = queue.top();
+        std::pair<intE, intE> kv = queue.top();
 
         intE e = kv.first;
-        intB k = kv.second;
+        intE k = kv.second;
         queue.pop();
         isProcessed[e] = 1;
 
@@ -155,7 +155,7 @@ int main(int argc, char** argv)
         {
             intV neigh = G.adj[u][i];
             intE e1 = G.eId[u][i];
-            intB e1Updates = 0;
+            intE e1Updates = 0;
             if ((neigh==v) || (isProcessed[e1]==1)) continue;
             intV neighDeg;
             for (intV j=0; j<G.deg[neigh]; j++)

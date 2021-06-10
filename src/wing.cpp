@@ -111,10 +111,8 @@ int main(int argc, char** argv)
     tipVal.swap(butterflyCnt);
     
     double stop = omp_get_wtime();
-    double MEM_ALLOC_COUNT  = MEM_ALLOC_TIME;
-    printf("TIME: sort = %lf, reordering = %lf, counting = %lf, rearranging = %lf, total = %lf\n", (sortDone-start)*1000, (reOrderDone-sortDone)*1000, (countDone-labelingDone-MEM_ALLOC_COUNT)*1000, (stop-countDone)*1000, (stop-start-(labelingDone-reOrderDone)-MEM_ALLOC_COUNT)*1000);
+    printf("TIME: sort = %lf, reordering = %lf, counting = %lf, rearranging = %lf, total = %lf\n", (sortDone-start)*1000, (reOrderDone-sortDone)*1000, (countDone-labelingDone)*1000, (stop-countDone)*1000, (stop-start-(labelingDone-reOrderDone))*1000);
 
-    MEM_ALLOC_TIME  = 0;
 
 
     printf("beginning decomposition\n");
@@ -260,8 +258,6 @@ int main(int argc, char** argv)
 
 
     double coarseDone = omp_get_wtime();
-    double MEM_ALLOC_COARSE = MEM_ALLOC_TIME;
-    MEM_ALLOC_TIME  = 0;
 
     //create bloom edge graphs for each partition
     printf("constructing BEGs for individual partitions\n");
@@ -271,8 +267,6 @@ int main(int argc, char** argv)
 
     clock_t clockStart = clock();
     double partBEGDone = omp_get_wtime();
-    double MEM_ALLOC_PART   = MEM_ALLOC_TIME;
-    MEM_ALLOC_TIME  = 0;
 
     std::vector<int> partIds (numParts);
     std::iota(partIds.begin(), partIds.end(), 0);
@@ -309,8 +303,6 @@ int main(int argc, char** argv)
     clock_t clockEnd = clock();
     printf("finished decomposition\n");
 
-    double MEM_ALLOC_FINE = MEM_ALLOC_TIME;
-    MEM_ALLOC_TIME  = MEM_ALLOC_FINE+MEM_ALLOC_COUNT+MEM_ALLOC_COARSE+MEM_ALLOC_PART;
 
     intE maxT = 0;
     #pragma omp parallel for num_threads(NUM_THREADS) reduction (max:maxT)
@@ -318,7 +310,7 @@ int main(int argc, char** argv)
         maxT = std::max(tipVal[i], maxT); 
     printf("maximum wing number = %lld\n", maxT);
 
-    printf("TIME: decompose init = %lf, coarse = %lf, part BEG construction = %lf, fine = %lf, cpu clk time fine = %lf, total = %lf\n", (initDone-stop)*1000, (coarseDone-initDone-MEM_ALLOC_COARSE)*1000, (partBEGDone-coarseDone-MEM_ALLOC_PART)*1000, (fineDone-partBEGDone-MEM_ALLOC_FINE)*1000, ((double)(clockEnd-clockStart)/CLOCKS_PER_SEC)*1000, (fineDone-start-MEM_ALLOC_TIME)*1000);
+    printf("TIME: decompose init = %lf, coarse = %lf, part BEG construction = %lf, fine = %lf,  total = %lf\n", (initDone-stop)*1000, (coarseDone-initDone)*1000, (partBEGDone-coarseDone)*1000, (fineDone-partBEGDone)*1000, (fineDone-start)*1000);
 
     printf("\n\n\n\n");
 

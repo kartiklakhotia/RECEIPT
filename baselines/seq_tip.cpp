@@ -45,13 +45,13 @@ int main(int argc, char** argv)
     }
     if (helpReq)
     {
-        printf("command to run is \n             ./decomposeSeq -i <inputFile> -o <outputFile> -s <peelSide> \n\n");
+        printf("command to run is \n             ./decomposeSeqTip -i <inputFile> -o <outputFile> -s <peelSide> \n\n");
         printf("To peel U vertex set (LHS in edge list), use \"-s 0\", otherwise use \"-s 1\"\n");
         return 0;
     }
     if ((!ipExists) || ((peelSide != 0) && (peelSide != 1)))
     {
-        printf("ERROR: correct command is \n             ./decomposeSeq -i <inputFile> -o <outputFile> -s <peelSide> \n\n");
+        printf("ERROR: correct command is \n             ./decomposeSeqTip -i <inputFile> -o <outputFile> -s <peelSide> \n\n");
         printf("To peel U vertex set (LHS in edge list), use \"-s 0\", otherwise use \"-s 1\"\n");
         return -1;
     }
