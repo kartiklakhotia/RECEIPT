@@ -23,11 +23,11 @@ It generates the following executables:
 2. **decomposeParTip** - parallel vertex peeling (for tip decomposition)
 
 Baselines:
-1. **decomposeSeqTip** - sequential vertex peeling (for tip decomposition)
-2. **decomposeSeqWing** - sequential edge peeling (for wing decomposition)
+1. **decomposeSeqWing** - sequential edge peeling (for wing decomposition)
+2. **decomposeSeqTip** - sequential vertex peeling (for tip decomposition)
 3. **decomposePCWing** - progressive compression approach for wing decomposition
 
-Sources:
+References:
 1. [Sequential Tip/Wing Decomposition algorithm](http://sariyuce.com/bnd.tar)
 2. [Progressive Compression Wing Decomposition](https://arxiv.org/pdf/2001.06111.pdf)
 
