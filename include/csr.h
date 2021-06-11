@@ -420,116 +420,96 @@ void construct_part_BEG(BEGraphLoMem &BEG, int numParts, std::vector<std::vector
             end = omp_get_wtime();
             MEM_ALLOC_TIME  += end-start;
         }
+    }
 
-        #pragma omp barrier
 
 
-        //for each partition
-        for (int i=0; i<numParts; i++)
+    //for each partition
+    for (int i=0; i<numParts; i++)
+    {
+        //for each bloom in that partition
+        #pragma omp parallel for num_threads(NUM_THREADS) schedule (dynamic, 5) reduction (+:work)
+        for (intB j=0; j<partBEG[i].numV; j++)
         {
-            #pragma omp barrier
-            //for each bloom in that partition
-            #pragma omp for schedule (dynamic, 5) reduction (+:work)
-            for (intB j=0; j<partBEG[i].numV; j++)
+            //probe only those edge pairs(wedges) that are in this partition
+            intB bloomId = partBlooms[i][j];
+            intE maxDeg = BEG.bloomVI[bloomId+1] - BEG.bloomVI[bloomId];
+            intE partBloomDeg = 0;
+            intE bloomWork = 0;
+            while(BEG.bloomDegree[bloomId] < maxDeg) 
             {
-                //probe only those edge pairs(wedges) that are in this partition
-                intB bloomId = partBlooms[i][j];
-                intE maxDeg = BEG.bloomVI[bloomId+1] - BEG.bloomVI[bloomId];
-                intE partBloomDeg = 0;
-                intE bloomWork = 0;
-                while(BEG.bloomDegree[bloomId] < maxDeg) 
+                std::pair<intE, intE> &ep = BEG.bloomEI[BEG.bloomVI[bloomId]+BEG.bloomDegree[bloomId]];
+                int currPart = edgeToPart[ep.first];
+
+                //remaining wedges belong to higher partition
+                if (currPart > i) break; 
+                BEG.bloomDegree[bloomId]++;
+
+                //this bloom didn't get included in "currPart"
+                //skip those wedges
+                if (currPart < i) continue; 
+
+                intE partE1, partE2;
+                partE1 = edgeToPartEId[ep.first]; __sync_fetch_and_add(&partBEG[i].edgeDegree[partE1], 1); 
+                bloomWork++;
+                if (edgeToPart[ep.second]==i)
                 {
-                    std::pair<intE, intE> &ep = BEG.bloomEI[BEG.bloomVI[bloomId]+BEG.bloomDegree[bloomId]];
-                    int currPart = edgeToPart[ep.first];
-
-                    //remaining wedges belong to higher partition
-                    if (currPart > i) break; 
-                    BEG.bloomDegree[bloomId]++;
-
-                    //this bloom didn't get included in "currPart"
-                    //skip those wedges
-                    if (currPart < i) continue; 
-
-                    intE partE1, partE2;
-                    partE1 = edgeToPartEId[ep.first]; __sync_fetch_and_add(&partBEG[i].edgeDegree[partE1], 1); 
                     bloomWork++;
-                    if (edgeToPart[ep.second]==i)
-                    {
-                        bloomWork++;
-                        partE2 = edgeToPartEId[ep.second];
-                        __sync_fetch_and_add(&partBEG[i].edgeDegree[partE2], 1);
-                    }
-                    else  partE2 = partBEG[i].numU+1; //other edges in diff. partition. Don't process later
-
-                    assert(partBloomDeg < partBEG[i].bloomDegree[j]);
-                    partBEG[i].bloomEI[partBEG[i].bloomVI[j] + partBloomDeg++] = std::make_pair(partE1, partE2);
+                    partE2 = edgeToPartEId[ep.second];
+                    __sync_fetch_and_add(&partBEG[i].edgeDegree[partE2], 1);
                 }
-                work += partBloomDeg*(partBloomDeg-1);
-            }    
-            #pragma omp barrier
-            #pragma omp single
-            {
-                partWork[i] = work;
-                work = 0;
+                else  partE2 = partBEG[i].numU+1; //other edges in diff. partition. Don't process later
+
+                assert(partBloomDeg < partBEG[i].bloomDegree[j]);
+                partBEG[i].bloomEI[partBEG[i].bloomVI[j] + partBloomDeg++] = std::make_pair(partE1, partE2);
             }
-        }
+            work += partBloomDeg*(partBloomDeg-1);
+        }    
+        partWork[i] = work;
+        work = 0;
+    }
 
-        #pragma omp barrier
+    free_vec(BEG.bloomEI); 
+    free_vec(BEG.bloomDegree); 
+    free_vec(BEG.bloomWdgCnt);
+    free_vec(BEG.bloomVI);
 
-        #pragma omp single
-        {
-            free_vec(BEG.bloomEI); 
-            free_vec(BEG.bloomDegree); 
-            free_vec(BEG.bloomWdgCnt);
-            free_vec(BEG.bloomVI);
-        }
+    #pragma omp parallel for num_threads(NUM_THREADS) schedule (dynamic, 1)
+    for (int i=0; i<numParts; i++)
+        serial_prefix_sum(partBEG[i].edgeVI, partBEG[i].edgeDegree);
 
-        #pragma omp for schedule (dynamic, 1)
-        for (int i=0; i<numParts; i++)
-            serial_prefix_sum(partBEG[i].edgeVI, partBEG[i].edgeDegree);
+    start   = omp_get_wtime();
 
-        #pragma omp single
-        start   = omp_get_wtime();
+    for (int i=0; i<numParts; i++)
+    {
+        partBEG[i].numE = partBEG[i].edgeVI.back(); 
+        partBEG[i].edgeEI.resize(partBEG[i].numE, std::make_pair<intB, intE>(0, 0));
+    }
 
-        #pragma omp for
-        for (int i=0; i<numParts; i++)
-        {
-            partBEG[i].numE = partBEG[i].edgeVI.back(); 
-            partBEG[i].edgeEI.resize(partBEG[i].numE, std::make_pair<intB, intE>(0, 0));
-        }
+    end = omp_get_wtime();
+    MEM_ALLOC_TIME  += end-start;
 
-        #pragma omp barrier
-
-        #pragma omp single
-        {
-            end = omp_get_wtime();
-            MEM_ALLOC_TIME  += end-start;
-        }
-
-        #pragma omp barrier
         
-        
-        //transpose partBEG[i].bloomEI to create partBEG[i].edgeEI
-        for (int i=0; i<numParts; i++)
+    //transpose partBEG[i].bloomEI to create partBEG[i].edgeEI
+    for (int i=0; i<numParts; i++)
+    {
+        #pragma omp parallel for num_threads(NUM_THREADS)
+        for (intE j=0; j<partBEG[i].numU; j++) partBEG[i].edgeDegree[j] = 0;
+        #pragma omp barrier
+        #pragma omp parallel for num_threads(NUM_THREADS) schedule (dynamic, 6)
+        for (intB j=0; j<partBEG[i].numV; j++)
         {
-            #pragma omp for
-            for (intE j=0; j<partBEG[i].numU; j++) partBEG[i].edgeDegree[j] = 0;
-            #pragma omp barrier
-            #pragma omp for
-            for (intB j=0; j<partBEG[i].numV; j++)
+            for (intB k=partBEG[i].bloomVI[j]; k<partBEG[i].bloomVI[j+1]; k++)
             {
-                for (intB k=partBEG[i].bloomVI[j]; k<partBEG[i].bloomVI[j+1]; k++)
-                {
-                    intE e1 = partBEG[i].bloomEI[k].first;
-                    intE e2 = partBEG[i].bloomEI[k].second;
-                    intE e1Idx = __sync_fetch_and_add(&partBEG[i].edgeDegree[e1], 1);
-                    partBEG[i].edgeEI[partBEG[i].edgeVI[e1] + e1Idx] = std::make_pair(j, e2);
-                    if (e2 > partBEG[i].numU) continue;
-                    intE e2Idx = __sync_fetch_and_add(&partBEG[i].edgeDegree[e2], 1);
-                    partBEG[i].edgeEI[partBEG[i].edgeVI[e2] + e2Idx] = std::make_pair(j, e1);
-                }
-            } 
-        }
+                intE e1 = partBEG[i].bloomEI[k].first;
+                intE e2 = partBEG[i].bloomEI[k].second;
+                intE e1Idx = __sync_fetch_and_add(&partBEG[i].edgeDegree[e1], 1);
+                partBEG[i].edgeEI[partBEG[i].edgeVI[e1] + e1Idx] = std::make_pair(j, e2);
+                if (e2 > partBEG[i].numU) continue;
+                intE e2Idx = __sync_fetch_and_add(&partBEG[i].edgeDegree[e2], 1);
+                partBEG[i].edgeEI[partBEG[i].edgeVI[e2] + e2Idx] = std::make_pair(j, e1);
+            }
+        } 
     }
 #ifdef DEBUG
     printf("part BEGs constructed\n");

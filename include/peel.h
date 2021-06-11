@@ -1074,16 +1074,18 @@ intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, in
         std::array<intE, locBuffSizeLarge> &locEdgeBuff = thdEdgeBuff[tid]; unsigned locEdgeBuffPtr = 0;
 
         //Explore active edges and activate blooms
-        #pragma omp for schedule (dynamic,3)
+        #pragma omp for schedule (dynamic)
         for (intE i=activeEdgeStartOffset; i<prevActiveEdgePtr; i++)
         {
             intE e = activeEdges[i];
             assert(!isPeeled[e]);
             assert(isActive[e]);
-            for (intE j=0; j<BEG.edgeDegree[e]; j++)
+            intE NeI = BEG.edgeDegree[e];
+            for (intE j=0; j<NeI; j++)
             {
-                intB bloomId = BEG.edgeEI[BEG.edgeVI[e]+j].first;
-                intE neighEdgeId = BEG.edgeEI[BEG.edgeVI[e]+j].second;
+                intB belink = BEG.edgeVI[e]+j;
+                intB bloomId = BEG.edgeEI[belink].first;
+                intE neighEdgeId = BEG.edgeEI[belink].second;
                 if (isPeeled[neighEdgeId] || (BEG.bloomDegree[bloomId]<2)) continue;
                 if (isActive[neighEdgeId] && (neighEdgeId>e)) continue;
 
@@ -1098,7 +1100,7 @@ intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, in
                         locEdgeBuff[locEdgeBuffPtr++] = neighEdgeId;
                         locEdgeBuffPtr = updateGlobalQueue(locEdgeBuffPtr, locBuffSizeLarge, activeEdgePtr, locEdgeBuff, activeEdges); 
                     }
-                    else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[neighEdgeId], updateVal);
+                    //else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[neighEdgeId], updateVal);
                 }
 
                 //update bloom
@@ -1126,7 +1128,7 @@ intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, in
         #pragma omp barrier
 
         //explore active blooms and update edge supports
-        #pragma omp for schedule (dynamic,6)
+        #pragma omp for schedule (dynamic,5)
         for (intB i=0; i<activeBloomPtr; i++)
         {
             intB bloomId = activeBlooms[i];
@@ -1156,7 +1158,7 @@ intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, in
                         locEdgeBuff[locEdgeBuffPtr++] = e1Id;
                         locEdgeBuffPtr = updateGlobalQueue(locEdgeBuffPtr, locBuffSizeLarge, activeEdgePtr, locEdgeBuff, activeEdges); 
                     }
-                    else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[e1Id], numDels);
+                    //else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[e1Id], numDels);
                 }
 
                 prevTipVal = tipVal[e2Id];
@@ -1168,7 +1170,7 @@ intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, in
                         locEdgeBuff[locEdgeBuffPtr++] = e2Id;
                         locEdgeBuffPtr = updateGlobalQueue(locEdgeBuffPtr, locBuffSizeLarge, activeEdgePtr, locEdgeBuff, activeEdges); 
                     }
-                    else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[e2Id], numDels);
+                    //else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[e2Id], numDels);
                 }
             }
         }
