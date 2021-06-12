@@ -27,7 +27,7 @@ Baselines:
 2. **decomposeSeqTip** - sequential vertex peeling (for tip decomposition)
 3. **decomposePCWing** - progressive compression approach for wing decomposition
 
-References:
+Baseline References:
 1. [Sequential Tip/Wing Decomposition algorithm](http://sariyuce.com/bnd.tar)
 2. [Progressive Compression Wing Decomposition](https://arxiv.org/pdf/2001.06111.pdf)
 
@@ -41,13 +41,13 @@ References:
 
 ### Wing Decomposition
 ```
-./decomposeParWing -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> 
+numactl -l ./decomposeParWing -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> 
 
 ```
 
 ### Tip Decomposition
 ```
-./decomposeParTip -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> -s <peelSide>
+numactl -l ./decomposeParTip -i <inputFile> -o <outputFile> -t <# threads> -p <# partitions to create> -s <peelSide>
 ```
 
 ### Arguments

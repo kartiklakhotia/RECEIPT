@@ -2,7 +2,7 @@
 #undef DEBUG
 
 #define NDEBUG
-#undef NDEBUG
+//#undef NDEBUG
 
 
 #include "fine_peel.h"
