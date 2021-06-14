@@ -14,6 +14,12 @@ std::vector<intB> histWorkGlobal;
 std::vector<intB> histWorkAccGlobal;
 
 
+//for static load balancing
+std::vector<intB> workBloomSchedule;
+std::vector<intB> accWorkBloomSchedule;
+std::vector<intB> partBloomStart;
+
+
 
 /*****************************************************************************
 Re-count and generate updates for 2-hop neighbors of deleted vertices
@@ -1065,6 +1071,17 @@ intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, in
     if (thdBloomBuff.size() < NUM_THREADS) thdBloomBuff.resize(NUM_THREADS);
     if (thdEdgeBuff.size() < NUM_THREADS) thdEdgeBuff.resize(NUM_THREADS);
 
+    unsigned numBloomParts = NUM_THREADS*50; 
+    if (partBloomStart.size() < numBloomParts+1)
+        partBloomStart.resize(numBloomParts+1);
+
+
+    if (workBloomSchedule.size() == 0)
+    {
+        workBloomSchedule.resize(BEG.numV);
+        accWorkBloomSchedule.resize(BEG.numV + 1);
+    }
+
 
     #pragma omp parallel num_threads(NUM_THREADS) 
     {
@@ -1100,7 +1117,6 @@ intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, in
                         locEdgeBuff[locEdgeBuffPtr++] = neighEdgeId;
                         locEdgeBuffPtr = updateGlobalQueue(locEdgeBuffPtr, locBuffSizeLarge, activeEdgePtr, locEdgeBuff, activeEdges); 
                     }
-                    //else if (prevTipVal < kHi) __sync_fetch_and_add(&tipVal[neighEdgeId], updateVal);
                 }
 
                 //update bloom
@@ -1124,6 +1140,74 @@ intE update_edge_supp(BEGraphLoMem& BEG, std::vector<intE> &tipVal, intE kLo, in
             isActive[e] = false;
             isPeeled[e] = true; 
         }
+
+
+        //LOAD BALANCING
+        #pragma omp for
+        for (intB i=0; i<activeBloomPtr; i++)
+            workBloomSchedule[i] = BEG.bloomDegree[activeBlooms[i]];
+
+        //compute prefix scan
+        int bloomsPerThd = (activeBloomPtr-1)/NUM_THREADS + 1;
+        if (tid==0)
+            accWorkBloomSchedule[0] = 0;
+        #pragma omp barrier
+        if (bloomsPerThd < 10)
+        {
+            #pragma omp single
+            {
+                for (intB i=0; i<activeBloomPtr; i++)
+                    accWorkBloomSchedule[i+1] =  accWorkBloomSchedule[i] + workBloomSchedule[i];
+            }
+        } 
+        else
+        {
+            intB startBloomIdx = bloomsPerThd*tid+1;
+            intB endBloomIdx = std::min(startBloomIdx + bloomsPerThd, activeBloomPtr+1);
+            accWorkBloomSchedule[startBloomIdx] = workBloomSchedule[startBloomIdx-1];
+            for (intB i=startBloomIdx+1; i<endBloomIdx; i++)
+                accWorkBloomSchedule[i] = accWorkBloomSchedule[i-1] + workBloomSchedule[i-1]; 
+            #pragma omp barrier
+            #pragma omp single
+            {
+                for (size_t i=1; i<NUM_THREADS; i++)
+                {
+                    intB prevEnd = bloomsPerThd*i + 1; if (prevEnd > activeBloomPtr) continue;
+                    intB tend = std::min(prevEnd + bloomsPerThd, activeBloomPtr+1);
+                    accWorkBloomSchedule[tend-1] += accWorkBloomSchedule[prevEnd-1];
+                }
+                partBloomStart[0] = 0;
+            }
+            #pragma omp barrier
+            if (tid>0)
+            {
+                intB blockScan = accWorkBloomSchedule[startBloomIdx-1];
+                for (intB i=startBloomIdx; i<endBloomIdx-1; i++)
+                    accWorkBloomSchedule[i] += blockScan;
+            }
+        }
+
+        #pragma omp barrier
+
+        intB workPerPart = (accWorkBloomSchedule[activeBloomPtr]-1)/numBloomParts + 1;
+
+        //find task offsets
+        #pragma omp for
+        for (intB i=0; i<numBloomParts; i++)
+        {
+            intB ptrOff = std::lower_bound(accWorkBloomSchedule.begin(), accWorkBloomSchedule.begin()+activeBloomPtr+1, workPerPart*(i+1)) - accWorkBloomSchedule.begin();
+            partBloomStart[i+1] = std::min(ptrOff, activeBloomPtr); 
+        }
+
+        #pragma omp barrier
+        #pragma omp for
+        for (intB i=0; i<numBloomParts; i++)
+        {
+            assert(partBloomStart[i+1] >= partBloomStart[i]);
+        }
+
+
+
 
         #pragma omp barrier
 

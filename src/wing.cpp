@@ -158,7 +158,8 @@ int main(int argc, char** argv)
     std::vector<intE> tipValPartInit (G.numE);
 
     intB tgtWork = 0;
-    double scaling = 1.0;
+    //prescaling to prevent first partition from getting too large
+    double scaling = 0.2;
 
     printf("COARSE PEEL\n");
     double ubTime = 0;
