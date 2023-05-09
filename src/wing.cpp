@@ -80,6 +80,7 @@ int main(int argc, char** argv)
     std::vector<intV> vertexToLabels;
     invertMap(labelsToVertex, vertexToLabels);
 
+
     double sortDone = omp_get_wtime();
 
 #ifdef DEBUG
@@ -321,7 +322,16 @@ int main(int argc, char** argv)
         printf("printing exact wing numbers for edges\n");
             
         for (intV i=0; i<G.numE; i++)
-            fprintf(fp, "%u, %u, %lld \n", eIdToV[i].first, eIdToV[i].second, tipVal[i]);
+        {
+            int u   = labelsToVertex[eIdToV[i].first];
+            int v   = labelsToVertex[eIdToV[i].second];
+            if (u > v)
+                std::swap(u, v);
+            assert(v >= G.numU);
+            assert(u < G.numU);
+            v       = v - G.numU;
+            fprintf(fp, "%u, %u, %lld \n", u, v, tipVal[i]);
+        }
 
         fclose(fp);
     }
